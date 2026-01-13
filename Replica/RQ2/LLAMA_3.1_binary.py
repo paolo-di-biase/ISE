@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from datasets import Dataset
 import evaluate
-from peft import LoraConfig, PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model
 from trl import SFTTrainer, SFTConfig
 from datetime import datetime
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
