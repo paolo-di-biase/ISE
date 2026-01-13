@@ -158,6 +158,8 @@ training_arguments = TrainingArguments(
 )
 
 
+tokenizer.save_pretrained("./tokenizer")
+
 training_arguments = SFTConfig(
     output_dir="./outputs",
     per_device_train_batch_size=2,
@@ -170,12 +172,12 @@ training_arguments = SFTConfig(
 
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,   # <-- ora è valido
     train_dataset=processed_train_dataset,
     formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
     max_seq_length=512,
 )
+
 
 
 
