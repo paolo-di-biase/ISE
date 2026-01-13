@@ -167,14 +167,23 @@ training_arguments = TrainingArguments(
 )
 
 
+training_arguments = SFTConfig(
+    output_dir="./outputs",
+    max_seq_length=512,
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=4,
+    num_train_epochs=1,
+    tokenizer=tokenizer,   # <-- QUI va il tokenizer
+)
+
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
     train_dataset=processed_train_dataset,
     peft_config=peft_config,
-    args=training_arguments,
     formatting_func=lambda x: x["prompt_text"],
+    args=training_arguments,
 )
+
 
 
 trainer.train()
