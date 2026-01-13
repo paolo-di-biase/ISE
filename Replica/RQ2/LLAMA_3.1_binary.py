@@ -7,8 +7,9 @@ import torch
 from datasets import Dataset
 import evaluate
 from peft import LoraConfig, PeftModel
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 from datetime import datetime
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from transformers import (
     AutoModelForCausalLM,
@@ -165,15 +166,16 @@ training_arguments = TrainingArguments(
     seed=42,
 )
 
+
 trainer = SFTTrainer(
     model=model,
+    tokenizer=tokenizer,
     train_dataset=processed_train_dataset,
     peft_config=peft_config,
-    dataset_text_field="prompt_text",
-    max_seq_length=512,
-    tokenizer=tokenizer,
     args=training_arguments,
+    formatting_func=lambda x: x["prompt_text"],
 )
+
 
 trainer.train()
 trainer.save_model()
@@ -250,3 +252,103 @@ print(result)
 
 later = datetime.now()
 print("Total time (s):", (later - now).total_seconds())
+
+# =========================
+# precision recall f1
+# =========================
+
+def normalize_binary(x: str) -> str:
+    """
+    Normalizza output del modello a YES / NO
+    """
+    if x is None:
+        return "NO"
+    x = str(x).strip().upper()
+    x = x.split("\n")[0]
+    x = x.replace(".", "").replace(",", "").replace(":", "").replace(";", "")
+    if "YES" in x:
+        return "YES"
+    if "NO" in x:
+        return "NO"
+    return "NO"
+
+# Ground truth e predizioni
+y_true = [normalize_binary(x) for x in result_df["summary"].tolist()]
+y_pred = [normalize_binary(x) for x in result_df["generated_summary"].tolist()]
+
+labels = ["NO", "YES"]
+
+# Metriche per classe
+precision, recall, f1, support = precision_recall_fscore_support(
+    y_true,
+    y_pred,
+    labels=labels,
+    average=None,
+    zero_division=0
+)
+
+# Macro avg
+p_macro, r_macro, f1_macro, _ = precision_recall_fscore_support(
+    y_true, y_pred, average="macro", zero_division=0
+)
+
+# Weighted avg
+p_weighted, r_weighted, f1_weighted, _ = precision_recall_fscore_support(
+    y_true, y_pred, average="weighted", zero_division=0
+)
+
+accuracy = accuracy_score(y_true, y_pred)
+
+# =========================
+# CREA DATAFRAME METRICHE
+# =========================
+metrics_rows = []
+
+# Per classe
+for i, label in enumerate(labels):
+    metrics_rows.append({
+        "class": label,
+        "precision": precision[i],
+        "recall": recall[i],
+        "f1": f1[i],
+        "support": support[i]
+    })
+
+# Macro average
+metrics_rows.append({
+    "class": "macro_avg",
+    "precision": p_macro,
+    "recall": r_macro,
+    "f1": f1_macro,
+    "support": sum(support)
+})
+
+# Weighted average
+metrics_rows.append({
+    "class": "weighted_avg",
+    "precision": p_weighted,
+    "recall": r_weighted,
+    "f1": f1_weighted,
+    "support": sum(support)
+})
+
+# Accuracy (opzionale ma utile)
+metrics_rows.append({
+    "class": "accuracy",
+    "precision": accuracy,
+    "recall": accuracy,
+    "f1": accuracy,
+    "support": sum(support)
+})
+
+metrics_df = pd.DataFrame(metrics_rows)
+
+# =========================
+# SALVA CSV
+# =========================
+metrics_df.to_csv(
+    f"{OUTPUT_DIR}/RQ2_metrics_precision_recall_f1.csv",
+    index=False
+)
+
+print(metrics_df)
