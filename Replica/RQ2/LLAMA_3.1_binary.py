@@ -173,7 +173,10 @@ training_arguments = SFTConfig(
     gradient_accumulation_steps=4,
     num_train_epochs=1,
     learning_rate=2e-4,
+    bf16=False,
+    fp16=False,
 )
+
 
 trainer = SFTTrainer(
     model=model,
