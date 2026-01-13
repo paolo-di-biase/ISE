@@ -168,6 +168,7 @@ training_arguments = SFTConfig(
     learning_rate=2e-4,
     bf16=False,
     fp16=False,
+    max_seq_length=512,   # <-- QUI
 )
 
 trainer = SFTTrainer(
@@ -175,13 +176,7 @@ trainer = SFTTrainer(
     train_dataset=processed_train_dataset,
     formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
-    max_seq_length=512,
 )
-
-
-
-
-
 
 
 trainer.train()
