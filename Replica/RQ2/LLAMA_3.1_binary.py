@@ -98,28 +98,16 @@ def process_dataset(data):
 processed_train_dataset = process_dataset(train_dataset)
 
 # =========================
-# QLoRA
+# MODEL + TOKENIZER (CPU)
 # =========================
 def create_model_and_tokenizer():
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float16,
-    )
-
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        quantization_config=bnb_config,
-        device_map="auto",
-        use_auth_token=AUTH_TOKEN,
-        trust_remote_code=True,
+        device_map=None,
+        torch_dtype=torch.float32,
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_NAME,
-        use_auth_token=AUTH_TOKEN,
-    )
-
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
@@ -147,6 +135,9 @@ peft_config = LoraConfig(
     bias="none",
     task_type="CAUSAL_LM",
 )
+
+model = get_peft_model(model, peft_config)
+
 
 # =========================
 # TRAINING
@@ -177,16 +168,16 @@ training_arguments = SFTConfig(
     fp16=False,
 )
 
-
 trainer = SFTTrainer(
     model=model,
-    tokenizer=tokenizer,
+    tokenizer=tokenizer,   # <-- ora è valido
     train_dataset=processed_train_dataset,
-    peft_config=peft_config,
     formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
     max_seq_length=512,
 )
+
+
 
 
 
