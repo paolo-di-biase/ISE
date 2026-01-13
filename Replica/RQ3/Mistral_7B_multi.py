@@ -8,6 +8,7 @@ from datasets import Dataset, load_metric
 from peft import LoraConfig, PeftModel
 from trl import SFTTrainer
 from datetime import datetime
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from transformers import (
     AutoModelForCausalLM,
@@ -282,3 +283,112 @@ print(result1)
 
 later = datetime.now()
 print(str((later - now).total_seconds()))
+
+
+# =========================
+# Precision/Recall/F1
+# =========================
+
+LABELS = ["DEFECT", "DESIGN", "DOCUMENTATION", "IMPLEMENTATION", "TEST"]
+
+def normalize_multiclass(x: str) -> str:
+    # Normalize the model’s output to ONE of the 5 classes.
+    if x is None:
+        return "IMPLEMENTATION"
+
+    x = str(x).strip().upper()
+    x = x.split("\n")[0].strip()             
+    x = re.sub(r"[^A-Z_ ]", " ", x)          
+    x = re.sub(r"\s+", " ", x).strip()
+
+    for lab in LABELS:
+        if lab in x:
+            return lab
+
+    return "IMPLEMENTATION"
+
+
+def normalize_gold_label(x: str) -> str:
+# Normalize the gold label from the CSV
+    if x is None:
+        return "IMPLEMENTATION"
+    x = str(x).strip().upper()
+    x = x.replace(".", "").strip()
+    return x
+
+y_true = [normalize_gold_label(x) for x in result_df["summary"].tolist()]
+y_pred = [normalize_multiclass(x) for x in result_df["generated_summary"].tolist()]
+
+y_true = [x if x in LABELS else "IMPLEMENTATION" for x in y_true]
+
+# =========================
+# METRICS
+# =========================
+precision, recall, f1, support = precision_recall_fscore_support(
+    y_true,
+    y_pred,
+    labels=LABELS,
+    average=None,
+    zero_division=0
+)
+
+p_macro, r_macro, f1_macro, _ = precision_recall_fscore_support(
+    y_true, y_pred, average="macro", zero_division=0
+)
+
+p_weighted, r_weighted, f1_weighted, _ = precision_recall_fscore_support(
+    y_true, y_pred, average="weighted", zero_division=0
+)
+
+accuracy = accuracy_score(y_true, y_pred)
+
+# =========================
+# CSV
+# =========================
+metrics_rows = []
+
+for i, lab in enumerate(LABELS):
+    metrics_rows.append({
+        "class": lab,
+        "precision": precision[i],
+        "recall": recall[i],
+        "f1": f1[i],
+        "support": int(support[i]),
+    })
+
+metrics_rows.append({
+    "class": "macro_avg",
+    "precision": p_macro,
+    "recall": r_macro,
+    "f1": f1_macro,
+    "support": int(sum(support)),
+})
+
+metrics_rows.append({
+    "class": "weighted_avg",
+    "precision": p_weighted,
+    "recall": r_weighted,
+    "f1": f1_weighted,
+    "support": int(sum(support)),
+})
+
+metrics_rows.append({
+    "class": "accuracy",
+    "precision": accuracy,
+    "recall": accuracy,
+    "f1": accuracy,
+    "support": int(sum(support)),
+})
+
+metrics_df = pd.DataFrame(metrics_rows)
+
+metrics_df.to_csv(
+    f"{OUTPUT_DIR}/RQ3_metrics_precision_recall_f1.csv",
+    index=False
+)
+
+print(metrics_df)
+
+later = datetime.now()
+print("Total time (s):", (later - now).total_seconds())
+
