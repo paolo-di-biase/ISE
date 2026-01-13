@@ -172,17 +172,19 @@ training_arguments = SFTConfig(
     per_device_train_batch_size=2,
     gradient_accumulation_steps=4,
     num_train_epochs=1,
-    tokenizer=tokenizer,
+    learning_rate=2e-4,
 )
 
 trainer = SFTTrainer(
     model=model,
+    tokenizer=tokenizer,
     train_dataset=processed_train_dataset,
     peft_config=peft_config,
     formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
     max_seq_length=512,
 )
+
 
 
 
