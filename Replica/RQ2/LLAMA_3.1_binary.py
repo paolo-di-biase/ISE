@@ -101,17 +101,30 @@ processed_train_dataset = process_dataset(train_dataset)
 # MODEL + TOKENIZER (CPU)
 # =========================
 def create_model_and_tokenizer():
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        device_map=None,
-        torch_dtype=torch.float32,
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.float16,
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME,
+        quantization_config=bnb_config,
+        device_map="auto",          # <-- GPU
+        torch_dtype=torch.float16,  # <-- GPU
+        trust_remote_code=True,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_NAME,
+        trust_remote_code=True,
+    )
+
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
     return model, tokenizer
+
 
 model, tokenizer = create_model_and_tokenizer()
 model.config.use_cache = False
@@ -168,8 +181,6 @@ training_arguments = SFTConfig(
     gradient_accumulation_steps=4,
     num_train_epochs=1,
     learning_rate=2e-4,
-    bf16=False,
-    fp16=False,
     packing=False,
 )
 
