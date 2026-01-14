@@ -1,0 +1,11 @@
+pandas
+torch
+datasets
+evaluate
+peft
+trl
+datetime
+transformers
+bitsandbytes
+accelerate
+scikit-learn
