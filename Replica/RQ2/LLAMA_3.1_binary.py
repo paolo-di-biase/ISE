@@ -104,6 +104,7 @@ def create_model_and_tokenizer():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         device_map=None,
+        use_auth_token=AUTH_TOKEN,
         torch_dtype=torch.float32,
     )
 
