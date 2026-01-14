@@ -37,7 +37,8 @@ Classify the following text as YES or NO. Use just one class.
 """.strip()
 
 #For access LLama pre-trained model in HuggingFace
-AUTH_TOKEN = "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"
+#AUTH_TOKEN = "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"
+AUTH_TOKEN = "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"
 
 # =========================
 # DATASET
@@ -113,11 +114,13 @@ def create_model_and_tokenizer():
         device_map="auto",          # <-- GPU
         torch_dtype=torch.float16,  # <-- GPU
         trust_remote_code=True,
+        token=AUTH_TOKEN,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(
         MODEL_NAME,
         trust_remote_code=True,
+        token=AUTH_TOKEN,
     )
 
     tokenizer.pad_token = tokenizer.eos_token
