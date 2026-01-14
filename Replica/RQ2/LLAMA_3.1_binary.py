@@ -37,7 +37,7 @@ Classify the following text as YES or NO. Use just one class.
 """.strip()
 
 #For access LLama pre-trained model in HuggingFace
-AUTH_TOKEN = "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"
+AUTH_TOKEN = "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"
 
 # =========================
 # DATASET
