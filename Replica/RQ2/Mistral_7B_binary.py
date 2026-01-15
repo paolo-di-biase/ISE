@@ -1,12 +1,15 @@
 import json
 import re
+from pprint import pprint
 import pandas as pd
 
 import torch
-from datasets import Dataset, load_metric
-from peft import LoraConfig, PeftModel
-from trl import SFTTrainer
+from datasets import Dataset
+import evaluate
+from peft import LoraConfig, PeftModel, get_peft_model
+from trl import SFTTrainer, SFTConfig
 from datetime import datetime
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from transformers import (
     AutoModelForCausalLM,
@@ -14,24 +17,30 @@ from transformers import (
     BitsAndBytesConfig,
     TrainingArguments,
 )
+from transformers import Trainer
+from torch.optim import AdamW
 
 # =========================
-# SETUP GENERALE
+# SETUP
 # =========================
 now = datetime.now()
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
 
-# >>> MISTRAL 7B INSTRUCT <<<
+# >>> Mistral-7B-Instruct-v0.3 <<<
 MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.3"
 
-OUTPUT_DIR = "./readme_summarization"
+#OUTPUT_DIR = "./readme_summarization"
+OUTPUT_DIR = "./outputs"
 train_csv_file = "./refactored_train.csv"
 test_csv_file = "./refactored_test.csv"
 
 DEFAULT_SYSTEM_PROMPT = """
 Classify the following text as YES or NO. Use just one class.
 """.strip()
+
+# For Mistral-7B-Instruct-v0.3 (public), token is NOT required
+AUTH_TOKEN = None  # keep None; do not pass token to from_pretrained
 
 # =========================
 # DATASET
@@ -44,6 +53,9 @@ print(f"Testing samples: {len(test_df)}")
 
 train_df = train_df.dropna(subset=["classification", "commenttext"])
 test_df = test_df.dropna(subset=["classification", "commenttext"])
+
+print(len(train_df.index))
+print(len(test_df.index))
 
 train_dataset = Dataset.from_pandas(train_df)
 test_dataset = Dataset.from_pandas(test_df)
@@ -61,6 +73,7 @@ def generate_training_prompt(readme, summary, system_prompt=DEFAULT_SYSTEM_PROMP
 {summary}
 """.strip()
 
+
 def clean_text(text):
     text = re.sub(r"http\S+", "", text)
     text = re.sub(r"@[^\s]+", "", text)
@@ -71,6 +84,7 @@ def clean_text(text):
 def generate_sample_with_prompt(entry):
     readme = clean_text(entry["commenttext"])
     label = "NO." if entry["classification"] == "WITHOUT_CLASSIFICATION" else "YES."
+
     return {
         "prompt_text": generate_training_prompt(readme, label),
         "summary": label,
@@ -86,7 +100,7 @@ def process_dataset(data):
 processed_train_dataset = process_dataset(train_dataset)
 
 # =========================
-# QLoRA: MODELLO + TOKENIZER
+# MODEL + TOKENIZER (CPU/GPU via device_map)
 # =========================
 def create_model_and_tokenizer():
     bnb_config = BitsAndBytesConfig(
@@ -98,15 +112,21 @@ def create_model_and_tokenizer():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         quantization_config=bnb_config,
-        device_map="auto",
+        device_map="auto",          # <-- GPU if available
+        torch_dtype=torch.float16,  # <-- GPU dtype
         trust_remote_code=True,
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_NAME,
+        trust_remote_code=True,
+    )
+
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
     return model, tokenizer
+
 
 model, tokenizer = create_model_and_tokenizer()
 model.config.use_cache = False
@@ -131,6 +151,9 @@ peft_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
+model = get_peft_model(model, peft_config)
+model = model.half()
+
 # =========================
 # TRAINING
 # =========================
@@ -139,7 +162,7 @@ training_arguments = TrainingArguments(
     gradient_accumulation_steps=2,
     learning_rate=1e-4,
     num_train_epochs=3,
-    fp16=True,
+    fp16=False,
     logging_steps=10,
     save_strategy="epoch",
     warmup_ratio=0.05,
@@ -149,14 +172,29 @@ training_arguments = TrainingArguments(
     seed=42,
 )
 
+tokenizer.save_pretrained("./tokenizer")
+
+tokenizer.model_max_length = 512
+
+training_arguments = SFTConfig(
+    output_dir=OUTPUT_DIR,
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=4,
+    num_train_epochs=1,
+    learning_rate=2e-4,
+    packing=False,
+    fp16=False,
+    bf16=False,
+)
+
+optimizer = AdamW(model.parameters(), lr=2e-4)
+
 trainer = SFTTrainer(
     model=model,
     train_dataset=processed_train_dataset,
-    peft_config=peft_config,
-    dataset_text_field="prompt_text",
-    max_seq_length=512,
-    tokenizer=tokenizer,
+    formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
+    optimizers=(optimizer, None),
 )
 
 trainer.train()
@@ -183,6 +221,7 @@ examples = []
 for entry in test_dataset:
     readme = clean_text(entry["commenttext"])
     label = "NO." if entry["classification"] == "WITHOUT_CLASSIFICATION" else "YES."
+
     examples.append(
         {
             "summary": label,
@@ -195,12 +234,14 @@ result_df = pd.DataFrame(examples)
 def summarize(model, text):
     inputs = tokenizer(text, return_tensors="pt").to(DEVICE)
     input_len = inputs["input_ids"].shape[1]
+
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
             max_new_tokens=10,
             temperature=0.0001,
         )
+
     return tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
 
 def normalize_answer(ans):
@@ -215,12 +256,12 @@ for p in result_df["prompt_text"]:
     predictions.append(pred)
 
 result_df["generated_summary"] = predictions
-result_df.to_csv(f"{OUTPUT_DIR}/compared_results_Mistral.csv", index=False)
+result_df.to_csv(f"{OUTPUT_DIR}/compared_results_MISTRAL.csv", index=False)
 
 # =========================
-# ROUGE (come nel tuo script)
+# ROUGE
 # =========================
-metric = load_metric("rouge")
+metric = evaluate.load("rouge")
 result = metric.compute(
     predictions=result_df["generated_summary"].tolist(),
     references=result_df["summary"].tolist(),
@@ -231,3 +272,102 @@ print(result)
 
 later = datetime.now()
 print("Total time (s):", (later - now).total_seconds())
+
+# =========================
+# precision recall f1
+# =========================
+def normalize_binary(x: str) -> str:
+    """
+    Normalizza output del modello a YES / NO
+    """
+    if x is None:
+        return "NO"
+    x = str(x).strip().upper()
+    x = x.split("\n")[0]
+    x = x.replace(".", "").replace(",", "").replace(":", "").replace(";", "")
+    if "YES" in x:
+        return "YES"
+    if "NO" in x:
+        return "NO"
+    return "NO"
+
+# Ground truth e predizioni
+y_true = [normalize_binary(x) for x in result_df["summary"].tolist()]
+y_pred = [normalize_binary(x) for x in result_df["generated_summary"].tolist()]
+
+labels = ["NO", "YES"]
+
+# Metriche per classe
+precision, recall, f1, support = precision_recall_fscore_support(
+    y_true,
+    y_pred,
+    labels=labels,
+    average=None,
+    zero_division=0
+)
+
+# Macro avg
+p_macro, r_macro, f1_macro, _ = precision_recall_fscore_support(
+    y_true, y_pred, average="macro", zero_division=0
+)
+
+# Weighted avg
+p_weighted, r_weighted, f1_weighted, _ = precision_recall_fscore_support(
+    y_true, y_pred, average="weighted", zero_division=0
+)
+
+accuracy = accuracy_score(y_true, y_pred)
+
+# =========================
+# CREA DATAFRAME METRICHE
+# =========================
+metrics_rows = []
+
+# Per classe
+for i, label in enumerate(labels):
+    metrics_rows.append({
+        "class": label,
+        "precision": precision[i],
+        "recall": recall[i],
+        "f1": f1[i],
+        "support": support[i]
+    })
+
+# Macro average
+metrics_rows.append({
+    "class": "macro_avg",
+    "precision": p_macro,
+    "recall": r_macro,
+    "f1": f1_macro,
+    "support": sum(support)
+})
+
+# Weighted average
+metrics_rows.append({
+    "class": "weighted_avg",
+    "precision": p_weighted,
+    "recall": r_weighted,
+    "f1": f1_weighted,
+    "support": sum(support)
+})
+
+# Accuracy
+metrics_rows.append({
+    "class": "accuracy",
+    "precision": accuracy,
+    "recall": accuracy,
+    "f1": accuracy,
+    "support": sum(support)
+})
+
+metrics_df = pd.DataFrame(metrics_rows)
+
+# =========================
+# SALVA CSV
+# =========================
+metrics_df.to_csv(
+    f"{OUTPUT_DIR}/RQ2_metrics_precision_recall_f1.csv",
+    index=False
+)
+
+print(metrics_df)
