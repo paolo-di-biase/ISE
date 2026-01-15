@@ -9,3 +9,6 @@ transformers
 bitsandbytes
 accelerate
 scikit-learn
+nltk
+rouge_score
+absl-py
