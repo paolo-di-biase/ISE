@@ -274,7 +274,7 @@ result = metric.compute(
     references=result_df["summary"].tolist(),
 )
 
-result = {k: round(v.mid.fmeasure * 100, 4) for k, v in result.items()}
+result = {k: round(v.min.fmeasure * 100, 4) for k, v in result.items()}
 print(result)
 
 later = datetime.now()
