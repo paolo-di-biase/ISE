@@ -17,6 +17,8 @@ from transformers import (
     BitsAndBytesConfig,
     TrainingArguments,
 )
+from transformers import Trainer
+from torch.optim import AdamW
 
 # =========================
 # SETUP
@@ -28,7 +30,8 @@ print(DEVICE)
 # >>> Llama-3.1-8B-Instruct <<<
 MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 
-OUTPUT_DIR = "./readme_summarization"
+#OUTPUT_DIR = "./readme_summarization"
+OUTPUT_DIR = "./outputs"
 train_csv_file = "./refactored_train.csv"
 test_csv_file = "./refactored_test.csv"
 
@@ -153,7 +156,7 @@ peft_config = LoraConfig(
 )
 
 model = get_peft_model(model, peft_config)
-
+model = model.half()
 
 # =========================
 # TRAINING
@@ -163,7 +166,7 @@ training_arguments = TrainingArguments(
     gradient_accumulation_steps=2,
     learning_rate=1e-4,
     num_train_epochs=3,
-    fp16=True,
+    fp16=False,
     logging_steps=10,
     save_strategy="epoch",
     warmup_ratio=0.05,
@@ -179,19 +182,24 @@ tokenizer.save_pretrained("./tokenizer")
 tokenizer.model_max_length = 512
 
 training_arguments = SFTConfig(
-    output_dir="./outputs",
+    output_dir=OUTPUT_DIR,
     per_device_train_batch_size=2,
     gradient_accumulation_steps=4,
     num_train_epochs=1,
     learning_rate=2e-4,
     packing=False,
+    fp16=False,
+    bf16=False,
 )
+
+optimizer = AdamW(model.parameters(), lr=2e-4)
 
 trainer = SFTTrainer(
     model=model,
     train_dataset=processed_train_dataset,
     formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
+    optimizers=(optimizer, None),
 )
 
 
