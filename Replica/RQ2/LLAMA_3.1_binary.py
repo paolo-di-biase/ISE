@@ -164,9 +164,11 @@ model = model.half()
 training_arguments = TrainingArguments(
     per_device_train_batch_size=2,
     gradient_accumulation_steps=2,
+    optim="paged_asamw_32bit",
+    logging_steps=10,
     learning_rate=1e-4,
     num_train_epochs=3,
-    fp16=False,
+    fp16=True,
     logging_steps=10,
     save_strategy="epoch",
     warmup_ratio=0.05,
@@ -184,12 +186,12 @@ tokenizer.model_max_length = 512
 training_arguments = SFTConfig(
     output_dir=OUTPUT_DIR,
     per_device_train_batch_size=2,
-    gradient_accumulation_steps=4,
-    num_train_epochs=1,
-    learning_rate=2e-4,
+    gradient_accumulation_steps=2,
+    num_train_epochs=3,
+    learning_rate=1e-4,
     packing=False,
-    fp16=False,
-    bf16=False,
+    fp16=True,
+    
 )
 
 optimizer = AdamW(model.parameters(), lr=2e-4)
@@ -197,6 +199,7 @@ optimizer = AdamW(model.parameters(), lr=2e-4)
 trainer = SFTTrainer(
     model=model,
     train_dataset=processed_train_dataset,
+    peft_config=peft_config,
     formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
     optimizers=(optimizer, None),
