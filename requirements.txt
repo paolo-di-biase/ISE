@@ -12,3 +12,6 @@ scikit-learn
 nltk
 rouge_score
 absl-py
+
+sentencepiece
+protobuf

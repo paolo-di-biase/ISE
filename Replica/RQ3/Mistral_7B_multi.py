@@ -4,9 +4,10 @@ from pprint import pprint
 import pandas as pd
 
 import torch
-from datasets import Dataset, load_metric
-from peft import LoraConfig, PeftModel
-from trl import SFTTrainer
+from datasets import Dataset
+import evaluate
+from peft import LoraConfig, PeftModel, get_peft_model
+from trl import SFTTrainer, SFTConfig
 from datetime import datetime
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
@@ -16,7 +17,12 @@ from transformers import (
     BitsAndBytesConfig,
     TrainingArguments,
 )
+from transformers import Trainer
+from torch.optim import AdamW
 
+# =========================
+# SETUP
+# =========================
 now = datetime.now()
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
@@ -26,8 +32,8 @@ print(DEVICE)
 # =========================
 MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.3"
 
-OUTPUT_DIR = "./readme_summarization"
-
+#OUTPUT_DIR = "./readme_summarization"
+OUTPUT_DIR = "./outputs"
 train_csv_file = "./refactored_train.csv"
 test_csv_file = "./refactored_test.csv"
 
@@ -36,6 +42,9 @@ DEFAULT_SYSTEM_PROMPT = """You are an AI assistant specialized in classifying co
 Your task is to analyze the code comments.
 Classify the following code comment as DEFECT, DESIGN, DOCUMENTATION, IMPLEMENTATION, or TEST.
 Use just one class. Do not include any additional text.""".strip()
+
+# For Mistral-7B-Instruct-v0.3 (public), token is NOT required
+AUTH_TOKEN = None  # keep None; do not pass token to from_pretrained
 
 # =========================
 # DATASET
@@ -114,11 +123,15 @@ def create_model_and_tokenizer():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         quantization_config=bnb_config,
+        torch_dtype=torch.float16,
         trust_remote_code=True,
         device_map="auto",
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_NAME,
+        trust_remote_code=True,
+    )
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
@@ -152,16 +165,20 @@ peft_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
+model = get_peft_model(model, peft_config)
+model = model.half()
+
 # =========================
 # TRAINING
 # =========================
+"""
 training_arguments = TrainingArguments(
     per_device_train_batch_size=2,
     gradient_accumulation_steps=2,
     optim="paged_adamw_32bit",
     logging_steps=10,
     learning_rate=1e-4,
-    fp16=True,
+    fp16=False,
     max_grad_norm=0.3,
     num_train_epochs=3,
     warmup_ratio=0.05,
@@ -173,7 +190,6 @@ training_arguments = TrainingArguments(
     lr_scheduler_type="cosine",
     seed=42,
 )
-
 trainer = SFTTrainer(
     model=model,
     train_dataset=processed_train_dataset,
@@ -181,6 +197,37 @@ trainer = SFTTrainer(
     dataset_text_field="prompt_text",
     max_seq_length=512,
     tokenizer=tokenizer,
+    args=training_arguments,
+)
+"""
+
+tokenizer.save_pretrained("./tokenizer")
+tokenizer.model_max_length = 512
+
+training_arguments = SFTConfig(
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=2,
+    optim="paged_adamw_32bit",
+    logging_steps=10,
+    learning_rate=1e-4,
+    fp16=False,
+    max_grad_norm=0.3,
+    num_train_epochs=3,
+    warmup_ratio=0.05,
+    save_strategy="epoch",
+    group_by_length=True,
+    output_dir=OUTPUT_DIR,
+    report_to="none",
+    save_safetensors=True,
+    lr_scheduler_type="cosine",
+    seed=42,
+    bf16=False,
+)
+
+trainer = SFTTrainer(
+    model=model,
+    train_dataset=processed_train_dataset,
+    formatting_func=lambda x: x["prompt_text"],
     args=training_arguments,
 )
 
@@ -254,15 +301,17 @@ result_df.to_csv(f"{OUTPUT_DIR}/compared_results_Mistral.csv", index=False)
 # =========================
 # ROUGE
 # =========================
-metric = load_metric("rouge")
+metric = evaluate.load("rouge")
 result = metric.compute(
-    predictions=result_df["generated_summary"].to_list(),
-    references=result_df["summary"].to_list(),
-    use_stemmer=True,
+    predictions=result_df["generated_summary"].tolist(),
+    references=result_df["summary"].tolist(),
 )
 
-result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
-result = {k: round(v, 4) for k, v in result.items()}
+result = {k: round(v.min.fmeasure * 100, 4) for k, v in result.items()}
+print(result)
+
+later = datetime.now()
+print("Total time (s):", (later - now).total_seconds())
 
 json_object = json.dumps(result, indent=4)
 
@@ -276,7 +325,7 @@ result1 = metric.compute(
     use_stemmer=True,
 )
 
-result1 = {key: value.mid.fmeasure * 100 for key, value in result1.items()}
+result1 = {key: value.min.fmeasure * 100 for key, value in result1.items()}
 result1 = {k: round(v, 4) for k, v in result1.items()}
 
 print(result1)
