@@ -299,41 +299,6 @@ result_df["generated_summary"] = result_list
 result_df.to_csv(f"{OUTPUT_DIR}/compared_results_LLAMA.csv", index=False)
 
 # =========================
-# ROUGE
-# =========================
-metric = evaluate.load("rouge")
-result = metric.compute(
-    predictions=result_df["generated_summary"].to_list(),
-    references=result_df["summary"].to_list(),
-    use_stemmer=True,
-)
-
-result = {key: value.min.fmeasure * 100 for key, value in result.items()}
-result = {k: round(v, 4) for k, v in result.items()}
-
-json_object = json.dumps(result, indent=4)
-
-with open(f"{OUTPUT_DIR}/rouge_results.json", "w") as outfile:
-    outfile.write(json_object)
-
-
-refactor_predictions = [s.split(".")[0] for s in result_df["generated_summary"].to_list()]
-result1 = metric.compute(
-    predictions=refactor_predictions,
-    references=result_df["summary"].to_list(),
-    use_stemmer=True,
-)
-
-result1 = {key: value.min.fmeasure * 100 for key, value in result1.items()}
-result1 = {k: round(v, 4) for k, v in result1.items()}
-
-print(result1)
-
-later = datetime.now()
-print(str((later - now).total_seconds()))
-
-
-# =========================
 # Precision/Recall/F1
 # =========================
 
@@ -345,8 +310,8 @@ def normalize_multiclass(x: str) -> str:
         return "IMPLEMENTATION"
 
     x = str(x).strip().upper()
-    x = x.split("\n")[0].strip()             
-    x = re.sub(r"[^A-Z_ ]", " ", x)          
+    x = x.split("\n")[0].strip()
+    x = re.sub(r"[^A-Z_ ]", " ", x)
     x = re.sub(r"\s+", " ", x).strip()
 
     for lab in LABELS:
@@ -431,7 +396,7 @@ metrics_rows.append({
 metrics_df = pd.DataFrame(metrics_rows)
 
 metrics_df.to_csv(
-    f"{OUTPUT_DIR}/RQ3_metrics_precision_recall_f1.csv",
+    f"{OUTPUT_DIR}/RQ3_metrics_precision_recall_f1_llama.csv",
     index=False
 )
 
