@@ -38,10 +38,10 @@ train_csv_file = "./refactored_train.csv"
 test_csv_file = "./refactored_test.csv"
 
 # PROMPT
-DEFAULT_SYSTEM_PROMPT = """You are an AI assistant specialized in classifying code comments.
-Your task is to analyze the code comments.
-Classify the following code comment as DEFECT, DESIGN, DOCUMENTATION, IMPLEMENTATION, or TEST.
-Use just one class. Do not include any additional text.""".strip()
+DEFAULT_SYSTEM_PROMPT = """You are an expert in software engineering and technical debt.
+Your task is to classify a single source code comment into exactly ONE Self-Admitted Technical Debt (SATD) category.
+Choose ONE label among: DEFECT, DESIGN, DOCUMENTATION,  IMPLEMENTATION, or TEST.
+Return ONLY the label. Do NOT add explanations, punctuation, or extra text.""".strip()
 
 # For Mistral-7B-Instruct-v0.3 (public), token is NOT required
 AUTH_TOKEN = None  # keep None; do not pass token to from_pretrained
