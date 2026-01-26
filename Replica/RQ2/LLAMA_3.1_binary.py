@@ -40,7 +40,7 @@ Classify the following text as YES or NO. Use just one class.
 """.strip()
 
 #For access LLama pre-trained model in HuggingFace
-AUTH_TOKEN = " " # ToDo: insert your token here
+#AUTH_TOKEN = ""
 
 # =========================
 # DATASET
@@ -163,12 +163,11 @@ model = model.half()
 training_arguments = TrainingArguments(
     per_device_train_batch_size=2,
     gradient_accumulation_steps=2,
-    optim="paged_asamw_32bit",
+    optim="paged_adamw_32bit",
     logging_steps=10,
     learning_rate=1e-4,
     num_train_epochs=3,
     fp16=True,
-    logging_steps=10,
     save_strategy="epoch",
     warmup_ratio=0.05,
     lr_scheduler_type="cosine",
@@ -190,7 +189,6 @@ training_arguments = SFTConfig(
     learning_rate=1e-4,
     packing=False,
     fp16=True,
-    
 )
 
 optimizer = AdamW(model.parameters(), lr=2e-4)
