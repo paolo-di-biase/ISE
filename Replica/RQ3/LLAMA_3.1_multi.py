@@ -20,16 +20,12 @@ from transformers import (
 from transformers import Trainer
 from torch.optim import AdamW
 
-# =========================
-# SETUP
-# =========================
+# Init setup
 now = datetime.now()
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
 
-# =========================
-# Llama 3.1 8B Instruct
-# =========================
+# Llama 3
 MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 
 OUTPUT_DIR = "./outputs"
@@ -43,11 +39,10 @@ Your task is to classify a single source code comment into exactly ONE Self-Admi
 Choose ONE label among: DEFECT, DESIGN, DOCUMENTATION,  IMPLEMENTATION, or TEST.
 Return ONLY the label. Do NOT add explanations, punctuation, or extra text.""".strip()
 
+# Hugging Face token
 AUTH_TOKEN = ""
 
-# =========================
-# DATASET
-# =========================
+# Dataset
 train_df = pd.read_csv(train_csv_file)
 test_df = pd.read_csv(test_csv_file)
 
@@ -63,9 +58,7 @@ test_df = test_df.dropna(subset=["classification", "commenttext"])
 train_dataset = Dataset.from_pandas(train_df)
 test_dataset = Dataset.from_pandas(test_df)
 
-# =========================
-# PROMPT
-# =========================
+
 def generate_training_prompt(readme: str, summary: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> str:
     return f"""### Instruction: {system_prompt}
 
@@ -106,12 +99,9 @@ def process_dataset(data: Dataset):
     )
 
 example = generate_sample_with_prompt(train_dataset[0])
-
 processed_train_dataset = process_dataset(train_dataset)
 
-# =========================
-# MODELLO + TOKENIZER (QLoRA)
-# =========================
+
 def create_model_and_tokenizer():
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -139,9 +129,7 @@ def create_model_and_tokenizer():
 model, tokenizer = create_model_and_tokenizer()
 model.config.use_cache = False
 
-# =========================
 # LoRA
-# =========================
 lora_r = 16
 lora_alpha = 64
 lora_dropout = 0.1
@@ -167,39 +155,6 @@ peft_config = LoraConfig(
 model = get_peft_model(model, peft_config)
 model = model.half()
 
-# =========================
-# TRAINING
-# =========================
-"""
-training_arguments = TrainingArguments(
-    per_device_train_batch_size=2,
-    gradient_accumulation_steps=2,
-    optim="paged_adamw_32bit",
-    logging_steps=10,
-    learning_rate=1e-4,
-    fp16=True,
-    max_grad_norm=0.3,
-    num_train_epochs=3,
-    warmup_ratio=0.05,
-    save_strategy="epoch",
-    group_by_length=True,
-    output_dir=OUTPUT_DIR,
-    report_to="none",
-    save_safetensors=True,
-    lr_scheduler_type="cosine",
-    seed=42,
-)
-
-trainer = SFTTrainer(
-    model=model,
-    train_dataset=processed_train_dataset,
-    peft_config=peft_config,
-    dataset_text_field="prompt_text",
-    max_seq_length=512,
-    tokenizer=tokenizer,
-    args=training_arguments,
-)
-"""
 
 tokenizer.save_pretrained("./tokenizer")
 tokenizer.model_max_length = 512
@@ -236,9 +191,7 @@ trainer.save_model()
 
 model = PeftModel.from_pretrained(model, OUTPUT_DIR)
 
-# =========================
-# TESTING PROMPT
-# =========================
+
 def generate_testing_prompt(readme: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT) -> str:
     return f"""### Instruction: {system_prompt}
 
@@ -263,9 +216,7 @@ for entry in test_dataset:
 
 result_df = pd.DataFrame(examples)
 
-# =========================
-# GENERATION
-# =========================
+
 def summarize(model, text: str):
     inputs = tokenizer(text, return_tensors="pt").to(DEVICE)
     inputs_length = len(inputs["input_ids"][0])
@@ -281,9 +232,7 @@ def generate_summary(prompt_text: str):
     corrected_summary = correct_answer(raw_summary)
     return corrected_summary
 
-# =========================
-# RUN INFERENCE
-# =========================
+
 result_list = []
 for x in result_df["prompt_text"]:
     answer = ""
@@ -298,9 +247,11 @@ print("RESULT COMPUTED")
 result_df["generated_summary"] = result_list
 result_df.to_csv(f"{OUTPUT_DIR}/compared_results_LLAMA.csv", index=False)
 
-# =========================
-# Precision/Recall/F1
-# =========================
+
+# Total time
+later = datetime.now()
+print("Total time (s):", (later - now).total_seconds())
+
 
 LABELS = ["DEFECT", "DESIGN", "DOCUMENTATION", "IMPLEMENTATION", "TEST"]
 
@@ -334,9 +285,8 @@ y_pred = [normalize_multiclass(x) for x in result_df["generated_summary"].tolist
 
 y_true = [x if x in LABELS else "IMPLEMENTATION" for x in y_true]
 
-# =========================
-# METRICS
-# =========================
+
+# Evaluation
 precision, recall, f1, support = precision_recall_fscore_support(
     y_true,
     y_pred,
@@ -355,9 +305,7 @@ p_weighted, r_weighted, f1_weighted, _ = precision_recall_fscore_support(
 
 accuracy = accuracy_score(y_true, y_pred)
 
-# =========================
-# CSV
-# =========================
+
 metrics_rows = []
 
 for i, lab in enumerate(LABELS):

@@ -20,18 +20,16 @@ from transformers import (
 from transformers import Trainer
 from torch.optim import AdamW
 
-# =========================
-# SETUP
-# =========================
+# Init setup
 now = datetime.now()
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(DEVICE)
 
-# >>> Llama-3.1-8B-Instruct <<<
+# Llama3
 MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 
-#OUTPUT_DIR = "./readme_summarization"
 OUTPUT_DIR = "./outputs"
+
 train_csv_file = "./refactored_train.csv"
 test_csv_file = "./refactored_test.csv"
 
@@ -39,12 +37,10 @@ DEFAULT_SYSTEM_PROMPT = """
 Classify the following text as YES or NO. Use just one class.
 """.strip()
 
-#For access LLama pre-trained model in HuggingFace
-#AUTH_TOKEN = ""
+# Hugging Face token
+AUTH_TOKEN = ""
 
-# =========================
-# DATASET
-# =========================
+# Dataset
 train_df = pd.read_csv(train_csv_file)
 test_df = pd.read_csv(test_csv_file)
 
@@ -60,9 +56,7 @@ print(len(test_df.index))
 train_dataset = Dataset.from_pandas(train_df)
 test_dataset = Dataset.from_pandas(test_df)
 
-# =========================
-# PROMPT
-# =========================
+
 def generate_training_prompt(readme, summary, system_prompt=DEFAULT_SYSTEM_PROMPT):
     return f"""### Instruction: {system_prompt}
 
@@ -100,9 +94,7 @@ def process_dataset(data):
 
 processed_train_dataset = process_dataset(train_dataset)
 
-# =========================
-# MODEL + TOKENIZER (CPU)
-# =========================
+
 def create_model_and_tokenizer():
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -134,22 +126,25 @@ def create_model_and_tokenizer():
 model, tokenizer = create_model_and_tokenizer()
 model.config.use_cache = False
 
-# =========================
-# LoRA CONFIG
-# =========================
+# LoRA
+lora_r = 16
+lora_alpha = 64
+lora_dropout = 0.1
+lora_target_modules = [
+    "q_proj",
+    "up_proj",
+    "o_proj",
+    "k_proj",
+    "down_proj",
+    "gate_proj",
+    "v_proj",
+]
+
 peft_config = LoraConfig(
-    r=16,
-    lora_alpha=64,
-    lora_dropout=0.1,
-    target_modules=[
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "o_proj",
-        "up_proj",
-        "down_proj",
-        "gate_proj",
-    ],
+    r=lora_r,
+    lora_alpha=lora_alpha,
+    lora_dropout=lora_dropout,
+    target_modules=lora_target_modules,
     bias="none",
     task_type="CAUSAL_LM",
 )
@@ -157,9 +152,6 @@ peft_config = LoraConfig(
 model = get_peft_model(model, peft_config)
 model = model.half()
 
-# =========================
-# TRAINING
-# =========================
 training_arguments = TrainingArguments(
     per_device_train_batch_size=2,
     gradient_accumulation_steps=2,
@@ -207,14 +199,9 @@ trainer = SFTTrainer(
 trainer.train()
 trainer.save_model()
 
-# =========================
-# LOAD MODEL FINETUNED
-# =========================
 model = PeftModel.from_pretrained(model, OUTPUT_DIR)
 
-# =========================
-# TESTING / INFERENCE
-# =========================
+
 def generate_testing_prompt(readme, system_prompt=DEFAULT_SYSTEM_PROMPT):
     return f"""### Instruction: {system_prompt}
 
@@ -237,6 +224,7 @@ for entry in test_dataset:
     )
 
 result_df = pd.DataFrame(examples)
+
 
 def summarize(model, text):
     inputs = tokenizer(text, return_tensors="pt").to(DEVICE)
@@ -265,24 +253,11 @@ for p in result_df["prompt_text"]:
 result_df["generated_summary"] = predictions
 result_df.to_csv(f"{OUTPUT_DIR}/compared_results_LLAMA.csv", index=False)
 
-# =========================
-# ROUGE
-# =========================
-metric = evaluate.load("rouge")
-result = metric.compute(
-    predictions=result_df["generated_summary"].tolist(),
-    references=result_df["summary"].tolist(),
-)
 
-result = {k: round(v * 100, 4) for k, v in result.items()}
-print(result)
-
+# Total time
 later = datetime.now()
 print("Total time (s):", (later - now).total_seconds())
 
-# =========================
-# precision recall f1
-# =========================
 
 def normalize_binary(x: str) -> str:
     """
@@ -326,9 +301,7 @@ p_weighted, r_weighted, f1_weighted, _ = precision_recall_fscore_support(
 
 accuracy = accuracy_score(y_true, y_pred)
 
-# =========================
-# CREA DATAFRAME METRICHE
-# =========================
+# Evaluation
 metrics_rows = []
 
 # Per classe
@@ -370,9 +343,6 @@ metrics_rows.append({
 
 metrics_df = pd.DataFrame(metrics_rows)
 
-# =========================
-# SALVA CSV
-# =========================
 metrics_df.to_csv(
     f"{OUTPUT_DIR}/RQ2_metrics_precision_recall_f1.csv",
     index=False
